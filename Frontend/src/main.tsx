@@ -1,10 +1,17 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "./styles.css";
-import App from "./App";
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
+import App from "./App";
+import "./styles.css";
+
+const rootElement = document.getElementById("root");
+
+if (!rootElement) {
+    throw new Error("ResQMesh root element was not found.");
+}
+
+createRoot(rootElement).render(
+    <StrictMode>
+        <App />
+    </StrictMode>
 );

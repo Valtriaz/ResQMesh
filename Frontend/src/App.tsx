@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
 import {
   Check,
   CheckCircle2,
@@ -13,296 +14,735 @@ import {
 } from "lucide-react";
 
 type HelpType =
-  | "SOS"
-  | "MEDICAL"
-  | "EVACUATION"
-  | "FOOD_WATER"
-  | "SHELTER"
-  | "SAFE";
+    | "SOS"
+    | "MEDICAL"
+    | "EVACUATION"
+    | "FOOD_WATER"
+    | "SHELTER"
+    | "SAFE";
 
-type Severity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+type Severity =
+    | "LOW"
+    | "MEDIUM"
+    | "HIGH"
+    | "CRITICAL";
 
-const helpOptions: {
+interface HelpOption {
   type: HelpType;
   label: string;
   description: string;
   color: string;
   icon: typeof TriangleAlert;
-}[] = [
+}
+
+interface SeverityOption {
+  value: Severity;
+  label: string;
+  description: string;
+}
+
+interface EmergencyResponse {
+  id: number;
+  type: string;
+  severity: string;
+  latitude: number;
+  longitude: number;
+  status: string;
+  createdAt: string;
+}
+
+const helpOptions: HelpOption[] = [
   {
     type: "SOS",
     label: "SOS",
     description: "Immediate danger",
     color: "critical",
-    icon: TriangleAlert
+    icon: TriangleAlert,
   },
   {
     type: "MEDICAL",
     label: "Medical Help",
     description: "Injury or medical emergency",
     color: "medical",
-    icon: HeartPulse
+    icon: HeartPulse,
   },
   {
     type: "EVACUATION",
     label: "Evacuation",
     description: "I need to leave the area",
     color: "evacuation",
-    icon: Truck
+    icon: Truck,
   },
   {
     type: "FOOD_WATER",
     label: "Food / Water",
     description: "Essential supplies needed",
     color: "resources",
-    icon: Droplets
+    icon: Droplets,
   },
   {
     type: "SHELTER",
     label: "Shelter",
     description: "I need a safe place",
     color: "shelter",
-    icon: Home
+    icon: Home,
   },
   {
     type: "SAFE",
     label: "I Am Safe",
     description: "Send a safety status",
     color: "safe",
-    icon: CheckCircle2
-  }
+    icon: CheckCircle2,
+  },
 ];
 
-const severityOptions: {
-  value: Severity;
-  label: string;
-  description: string;
-}[] = [
-  { value: "LOW", label: "Low", description: "Non-urgent" },
-  { value: "MEDIUM", label: "Medium", description: "Needs attention" },
-  { value: "HIGH", label: "High", description: "Urgent" },
-  { value: "CRITICAL", label: "Critical", description: "Life-threatening" }
+const severityOptions: SeverityOption[] = [
+  {
+    value: "LOW",
+    label: "Low",
+    description: "Non-urgent",
+  },
+  {
+    value: "MEDIUM",
+    label: "Medium",
+    description: "Needs attention",
+  },
+  {
+    value: "HIGH",
+    label: "High",
+    description: "Urgent",
+  },
+  {
+    value: "CRITICAL",
+    label: "Critical",
+    description: "Life-threatening",
+  },
 ];
 
 function App() {
-  const [selected, setSelected] = useState<HelpType | null>(null);
-  const [severity, setSeverity] = useState<Severity>("HIGH");
-  const [sent, setSent] = useState(false);
+  const [selected, setSelected] =
+      useState<HelpType | null>(null);
 
-  const selectedOption = helpOptions.find((item) => item.type === selected);
+  const [severity, setSeverity] =
+      useState<Severity>("HIGH");
+
+  const [sent, setSent] =
+      useState(false);
+
+  const [sending, setSending] =
+      useState(false);
+
+  const [error, setError] =
+      useState<string | null>(null);
+
+  const [networkStatus, setNetworkStatus] =
+      useState<"checking" | "online" | "offline">(
+          "checking"
+      );
+
+  const [location, setLocation] = useState({
+    latitude: 0,
+    longitude: 0,
+    available: false,
+  });
+
+  const selectedOption = helpOptions.find(
+      (option) => option.type === selected
+  );
+
+  useEffect(() => {
+    checkServer();
+
+    detectLocation();
+  }, []);
+
+  async function checkServer() {
+    try {
+      const response = await fetch(
+          "/api/health",
+          {
+            method: "GET",
+            cache: "no-store",
+          }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+            `Health check returned ${response.status}`
+        );
+      }
+
+      setNetworkStatus("online");
+    } catch (err) {
+      console.error(
+          "ResQMesh health check failed:",
+          err
+      );
+
+      setNetworkStatus("offline");
+    }
+  }
+
+  function detectLocation() {
+    if (!("geolocation" in navigator)) {
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setLocation({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            available: true,
+          });
+        },
+        (error) => {
+          console.warn(
+              "Location unavailable:",
+              error.message
+          );
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 8000,
+          maximumAge: 10000,
+        }
+    );
+  }
 
   function chooseHelp(type: HelpType) {
     setSelected(type);
     setSent(false);
+    setError(null);
 
     if (type === "SOS") {
       setSeverity("CRITICAL");
     }
   }
 
-  function sendRequest() {
-    // Frontend-only for now.
-    // Step 2 will replace this with POST /api/emergencies.
-    setSent(true);
+  async function getCurrentLocation(): Promise<{
+    latitude: number;
+    longitude: number;
+  }> {
+    if (!("geolocation" in navigator)) {
+      return {
+        latitude: 0,
+        longitude: 0,
+      };
+    }
+
+    try {
+      const position =
+          await new Promise<GeolocationPosition>(
+              (resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(
+                    resolve,
+                    reject,
+                    {
+                      enableHighAccuracy: true,
+                      timeout: 8000,
+                      maximumAge: 5000,
+                    }
+                );
+              }
+          );
+
+      const currentLocation = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      };
+
+      setLocation({
+        ...currentLocation,
+        available: true,
+      });
+
+      return currentLocation;
+    } catch (err) {
+      console.warn(
+          "Unable to get current location:",
+          err
+      );
+
+      return {
+        latitude: location.latitude,
+        longitude: location.longitude,
+      };
+    }
+  }
+
+  async function sendRequest() {
+    if (!selected) {
+      return;
+    }
+
+    setSending(true);
+    setError(null);
+
+    try {
+      const currentLocation =
+          await getCurrentLocation();
+
+      const emergencySeverity =
+          selected === "SAFE"
+              ? "LOW"
+              : selected === "SOS"
+                  ? "CRITICAL"
+                  : severity;
+
+      const requestBody = {
+        type: selected,
+        severity: emergencySeverity,
+        latitude: currentLocation.latitude,
+        longitude: currentLocation.longitude,
+      };
+
+      console.log(
+          "Sending ResQMesh emergency:",
+          requestBody
+      );
+
+      const response = await fetch(
+          "/api/emergencies",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(requestBody),
+          }
+      );
+
+      const responseText =
+          await response.text();
+
+      if (!response.ok) {
+        throw new Error(
+            `Server returned HTTP ${response.status}: ${responseText}`
+        );
+      }
+
+      let data: EmergencyResponse;
+
+      try {
+        data =
+            JSON.parse(
+                responseText
+            ) as EmergencyResponse;
+      } catch {
+        throw new Error(
+            "Server returned an invalid JSON response."
+        );
+      }
+
+      console.log(
+          "ResQMesh emergency accepted:",
+          data
+      );
+
+      setSent(true);
+    } catch (err) {
+      console.error(
+          "RESQMESH REQUEST FAILED:",
+          err
+      );
+
+      const message =
+          err instanceof Error
+              ? err.message
+              : String(err);
+
+      setError(message);
+    } finally {
+      setSending(false);
+    }
   }
 
   function reset() {
     setSelected(null);
     setSeverity("HIGH");
     setSent(false);
+    setError(null);
   }
 
   if (sent && selectedOption) {
     return (
-      <main className="page">
-        <section className="success-screen">
-          <div className="success-icon">
-            <Check size={44} strokeWidth={3} />
-          </div>
-
-          <div className="brand">
-            <div className="brand-icon"><Radio size={18} /></div>
-            <span>ResQMesh</span>
-          </div>
-
-          <p className="eyebrow">TRANSMISSION COMPLETE</p>
-          <h1>Help Sent</h1>
-          <p className="success-copy">
-            Your emergency request has been broadcast to the local ResQMesh network.
-          </p>
-
-          <div className="receipt">
-            <div>
-              <span>Request</span>
-              <strong>{selectedOption.label}</strong>
+        <main className="page">
+          <section className="success-screen">
+            <div className="success-icon">
+              <Check
+                  size={44}
+                  strokeWidth={3}
+              />
             </div>
-            <div>
-              <span>Severity</span>
-              <strong>{selected === "SAFE" ? "Low" : severity}</strong>
-            </div>
-            <div>
-              <span>Location</span>
-              <strong>Attached automatically</strong>
-            </div>
-            <div>
-              <span>Network</span>
-              <strong>ResQMesh Local</strong>
-            </div>
-          </div>
 
-          <div className="encrypted">
-            <ShieldCheck size={17} />
-            Encrypted emergency data · Offline capable
-          </div>
+            <div className="brand success-brand">
+              <div className="brand-icon">
+                <Radio size={18} />
+              </div>
 
-          <button className="primary-button" onClick={reset}>
-            Back to Home
-          </button>
-        </section>
-      </main>
+              <span>ResQMesh</span>
+            </div>
+
+            <p className="eyebrow">
+              TRANSMISSION COMPLETE
+            </p>
+
+            <h1>Help Sent</h1>
+
+            <p className="success-copy">
+              Your emergency request has been
+              received by the local ResQMesh
+              network.
+            </p>
+
+            <div className="receipt">
+              <div>
+                <span>Request</span>
+
+                <strong>
+                  {selectedOption.label}
+                </strong>
+              </div>
+
+              <div>
+                <span>Severity</span>
+
+                <strong>
+                  {selected === "SAFE"
+                      ? "Low"
+                      : severity}
+                </strong>
+              </div>
+
+              <div>
+                <span>Location</span>
+
+                <strong>
+                  {location.available
+                      ? "Attached"
+                      : "Unavailable"}
+                </strong>
+              </div>
+
+              <div>
+                <span>Network</span>
+
+                <strong>
+                  ResQMesh Local
+                </strong>
+              </div>
+            </div>
+
+            <div className="encrypted">
+              <ShieldCheck size={17} />
+
+              Encrypted emergency data ·
+              Offline capable
+            </div>
+
+            <button
+                className="primary-button"
+                onClick={reset}
+            >
+              Back to Home
+            </button>
+          </section>
+        </main>
     );
   }
 
   return (
-    <main className="page">
-      <div className="ambient ambient-one" />
-      <div className="ambient ambient-two" />
+      <main className="page">
+        <div className="ambient ambient-one" />
+        <div className="ambient ambient-two" />
 
-      <header className="topbar">
-        <div className="brand">
-          <div className="brand-icon"><Radio size={19} /></div>
-          <div>
-            <strong>ResQMesh</strong>
-            <span>Emergency Communication</span>
-          </div>
-        </div>
+        <header className="topbar">
+          <div className="brand">
+            <div className="brand-icon">
+              <Radio size={19} />
+            </div>
 
-        <div className="network-status">
-          <span className="status-dot" />
-          Network ready
-        </div>
-      </header>
-
-      <section className="hero">
-        <div>
-          <p className="eyebrow">OFFLINE · RESILIENT · CONNECTED</p>
-          <h1>
-            Get help.
-            <br />
-            <span>Immediately.</span>
-          </h1>
-          <p>
-            No account. No Internet. No complicated setup.
-            <br />
-            Just choose what you need.
-          </p>
-        </div>
-
-        <div className="hero-badge">
-          <Radio size={18} />
-          <div>
-            <strong>ResQMesh</strong>
-            <span>Local network active</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="help-section">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">EMERGENCY ACTIONS</p>
-            <h2>What do you need?</h2>
-          </div>
-          <span className="location-badge">
-            <LocateFixed size={14} />
-            Location ready
-          </span>
-        </div>
-
-        <div className="help-grid">
-          {helpOptions.map((option) => {
-            const Icon = option.icon;
-            const active = selected === option.type;
-
-            return (
-              <button
-                key={option.type}
-                className={`help-card ${option.color} ${active ? "active" : ""}`}
-                onClick={() => chooseHelp(option.type)}
-              >
-                <div className="card-icon">
-                  <Icon size={28} strokeWidth={2.2} />
-                </div>
-                <div className="card-copy">
-                  <strong>{option.label}</strong>
-                  <span>{option.description}</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {selectedOption && (
-        <section className="request-panel">
-          <div className="request-header">
             <div>
-              <p className="eyebrow">REQUEST</p>
-              <h2>{selectedOption.label}</h2>
-            </div>
-            <div className={`request-chip ${selectedOption.color}`}>
-              <selectedOption.icon size={17} />
-              Ready
+              <strong>ResQMesh</strong>
+              <span>
+              Emergency Communication
+            </span>
             </div>
           </div>
 
-          {selected !== "SAFE" && (
-            <>
-              <p className="field-label">Severity</p>
+          <div className="network-status">
+          <span
+              className={`status-dot ${
+                  networkStatus === "online"
+                      ? "online"
+                      : networkStatus ===
+                      "checking"
+                          ? "checking"
+                          : "offline"
+              }`}
+          />
 
-              <div className="severity-grid">
-                {severityOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    className={`severity-card ${
-                      severity === option.value ? "selected" : ""
-                    }`}
-                    onClick={() => setSeverity(option.value)}
-                  >
-                    <strong>{option.label}</strong>
-                    <span>{option.description}</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+            {networkStatus === "online"
+                ? "Network ready"
+                : networkStatus === "checking"
+                    ? "Connecting…"
+                    : "Server offline"}
+          </div>
+        </header>
 
-          <div className="auto-location">
-            <div className="location-icon">
-              <LocateFixed size={19} />
-            </div>
+        <section className="hero">
+          <div>
+            <p className="eyebrow">
+              OFFLINE · RESILIENT · CONNECTED
+            </p>
+
+            <h1>
+              Get help.
+              <br />
+
+              <span>Immediately.</span>
+            </h1>
+
+            <p>
+              No account. No Internet.
+              No complicated setup.
+              <br />
+              Just choose what you need.
+            </p>
+          </div>
+
+          <div className="hero-badge">
+            <Radio size={18} />
+
             <div>
-              <strong>Location attached automatically</strong>
-              <span>We will use your device's current location.</span>
+              <strong>ResQMesh</strong>
+              <span>
+              Local network active
+            </span>
             </div>
-            <CheckCircle2 size={20} className="location-check" />
           </div>
-
-          <button className="primary-button" onClick={sendRequest}>
-            {selected === "SAFE" ? "Send Safe Status" : "Confirm & Send"}
-          </button>
-
-          <button className="cancel-button" onClick={() => setSelected(null)}>
-            Cancel
-          </button>
         </section>
-      )}
 
-      <footer>
-        <ShieldCheck size={15} />
-        <span>Emergency information stays within the local ResQMesh network.</span>
-      </footer>
-    </main>
+        <section className="help-section">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">
+                EMERGENCY ACTIONS
+              </p>
+
+              <h2>
+                What do you need?
+              </h2>
+            </div>
+
+            <span className="location-badge">
+            <LocateFixed size={14} />
+
+              {location.available
+                  ? "Location ready"
+                  : "Location pending"}
+          </span>
+          </div>
+
+          <div className="help-grid">
+            {helpOptions.map(
+                (option) => {
+                  const Icon =
+                      option.icon;
+
+                  const active =
+                      selected ===
+                      option.type;
+
+                  return (
+                      <button
+                          key={option.type}
+                          className={`help-card ${option.color} ${
+                              active
+                                  ? "active"
+                                  : ""
+                          }`}
+                          onClick={() =>
+                              chooseHelp(
+                                  option.type
+                              )
+                          }
+                      >
+                        <div className="card-icon">
+                          <Icon
+                              size={28}
+                              strokeWidth={2.2}
+                          />
+                        </div>
+
+                        <div className="card-copy">
+                          <strong>
+                            {option.label}
+                          </strong>
+
+                          <span>
+                      {
+                        option.description
+                      }
+                    </span>
+                        </div>
+                      </button>
+                  );
+                }
+            )}
+          </div>
+        </section>
+
+        {selectedOption && (
+            <section className="request-panel">
+              <div className="request-header">
+                <div>
+                  <p className="eyebrow">
+                    REQUEST
+                  </p>
+
+                  <h2>
+                    {selectedOption.label}
+                  </h2>
+                </div>
+
+                <div
+                    className={`request-chip ${selectedOption.color}`}
+                >
+                  <selectedOption.icon
+                      size={17}
+                  />
+
+                  Ready
+                </div>
+              </div>
+
+              {selected !== "SAFE" && (
+                  <>
+                    <p className="field-label">
+                      Severity
+                    </p>
+
+                    <div className="severity-grid">
+                      {severityOptions.map(
+                          (option) => (
+                              <button
+                                  key={option.value}
+                                  className={`severity-card ${
+                                      severity ===
+                                      option.value
+                                          ? "selected"
+                                          : ""
+                                  }`}
+                                  onClick={() =>
+                                      setSeverity(
+                                          option.value
+                                      )
+                                  }
+                              >
+                                <strong>
+                                  {
+                                    option.label
+                                  }
+                                </strong>
+
+                                <span>
+                        {
+                          option.description
+                        }
+                      </span>
+                              </button>
+                          )
+                      )}
+                    </div>
+                  </>
+              )}
+
+              <div className="auto-location">
+                <div className="location-icon">
+                  <LocateFixed
+                      size={19}
+                  />
+                </div>
+
+                <div>
+                  <strong>
+                    Location attached
+                    automatically
+                  </strong>
+
+                  <span>
+                {location.available
+                    ? `${location.latitude.toFixed(
+                        5
+                    )}, ${location.longitude.toFixed(
+                        5
+                    )}`
+                    : "Location unavailable"}
+              </span>
+                </div>
+
+                <CheckCircle2
+                    size={20}
+                    className={
+                      location.available
+                          ? "location-check"
+                          : "location-check muted"
+                    }
+                />
+              </div>
+
+              {error && (
+                  <div className="error-box">
+                    <TriangleAlert size={18} />
+
+                    <div>
+                      <strong>
+                        Request failed
+                      </strong>
+
+                      <span>
+                  {error}
+                </span>
+                    </div>
+                  </div>
+              )}
+
+              <button
+                  className="primary-button"
+                  onClick={sendRequest}
+                  disabled={sending}
+              >
+                {sending
+                    ? "Sending…"
+                    : selected === "SAFE"
+                        ? "Send Safe Status"
+                        : "Confirm & Send"}
+              </button>
+
+              <button
+                  className="cancel-button"
+                  onClick={() =>
+                      setSelected(null)
+                  }
+                  disabled={sending}
+              >
+                Cancel
+              </button>
+            </section>
+        )}
+
+        <footer>
+          <ShieldCheck size={15} />
+
+          <span>
+          Emergency information stays
+          within the local ResQMesh
+          network.
+        </span>
+        </footer>
+      </main>
   );
 }
 
