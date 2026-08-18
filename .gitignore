@@ -1,1 +1,167 @@
-/Docs
+# OS / filesystem
+Docs
+.DS_Store
+.DS_Store?
+Thumbs.db
+Desktop.ini
+.Spotlight-V100
+.Trashes
+._*
+
+# IntelliJ / JetBrains
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+cmake-build-*/
+.jetbrains/
+
+# VS Code / local editor state
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.example.json
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+secret/
+credentials/
+
+# Node / React / Vite
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.yarn-cache/
+Frontend/dist/
+Frontend/.vite/
+Frontend/.cache/
+Frontend/coverage/
+dist/
+build/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+
+# Go
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+coverage.html
+*.prof
+*.trace
+
+# SQLite / local databases
+*.db
+*.db3
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+data/
+Server/data/
+Backend/data/
+
+# ESP-IDF / embedded builds
+managed_components/
+sdkconfig.old
+sdkconfig.local
+sdkconfig.defaults.local
+*.bin
+*.elf
+*.map
+*.hex
+.openocd/
+*.gdb
+*.jlink
+
+# PlatformIO
+.pio/
+.piolibdeps/
+.pioenvs/
+.platformio/
+
+# C / C++ / CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+install_manifest.txt
+CTestTestfile.cmake
+Testing/
+
+# Python / simulation tooling
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.eggs/
+
+# ns-3 generated output
+Simulator/results/
+Simulator/plots/
+Simulator/logs/
+Simulator/output/
+Simulator/ns-3*/build/
+Simulator/ns-3*/cache/
+Simulator/ns-3*/*.pcap
+Simulator/ns-3*/*.tr
+Simulator/ns-3*/*.xml
+Simulator/ns-3*/*.csv
+
+# Logs / temp
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Generated docs / exports
+docs/generated/
+Docs/generated/
+
+# Local deployment/runtime state
+deploy/local/
+runtime/
+*.pid
+*.sock
+.local/
+.local-state/
+
+# Docker local state
+.docker/
+docker-data/
+docker-volumes/
+
+# ResQMesh runtime-generated files
+resqmesh.db
+resqmesh.db-*
+ResQMesh.log
+resqmesh-debug.log
+
+# Keep lockfiles, source assets, Dockerfiles, and intentional docs tracked.
+
