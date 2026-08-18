@@ -18,8 +18,8 @@ type Emergency struct {
 	ID        int64     `json:"id"`
 	Type      string    `json:"type"`
 	Severity  string    `json:"severity"`
-	Latitude  float64   `json:"latitude"`
-	Longitude float64   `json:"longitude"`
+	Latitude  *float64  `json:"latitude"`
+	Longitude *float64  `json:"longitude"`
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"createdAt"`
 }
@@ -28,10 +28,7 @@ func NewDatabase(path string) (*Database, error) {
 	directory := filepath.Dir(path)
 
 	if directory != "." {
-		if err := os.MkdirAll(
-			directory,
-			0755,
-		); err != nil {
+		if err := os.MkdirAll(directory, 0755); err != nil {
 			return nil, fmt.Errorf(
 				"create database directory: %w",
 				err,
@@ -39,11 +36,7 @@ func NewDatabase(path string) (*Database, error) {
 		}
 	}
 
-	db, err := sql.Open(
-		"sqlite",
-		path,
-	)
-
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"open database: %w",
@@ -68,7 +61,7 @@ func NewDatabase(path string) (*Database, error) {
 		_ = db.Close()
 
 		return nil, fmt.Errorf(
-			"run database migration: %w",
+			"database migration: %w",
 			err,
 		)
 	}
@@ -82,18 +75,16 @@ func (d *Database) migrate() error {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			type TEXT NOT NULL,
 			severity TEXT NOT NULL,
-			latitude REAL NOT NULL,
-			longitude REAL NOT NULL,
+			latitude REAL,
+			longitude REAL,
 			status TEXT NOT NULL DEFAULT 'received',
 			created_at DATETIME NOT NULL
 		);
 
-		CREATE INDEX IF NOT EXISTS
-			idx_emergencies_created_at
+		CREATE INDEX IF NOT EXISTS idx_emergencies_created_at
 		ON emergencies(created_at);
 
-		CREATE INDEX IF NOT EXISTS
-			idx_emergencies_status
+		CREATE INDEX IF NOT EXISTS idx_emergencies_status
 		ON emergencies(status);
 	`)
 
@@ -103,6 +94,17 @@ func (d *Database) migrate() error {
 func (d *Database) CreateEmergency(
 	emergency Emergency,
 ) (Emergency, error) {
+	var latitude any
+	var longitude any
+
+	if emergency.Latitude != nil {
+		latitude = *emergency.Latitude
+	}
+
+	if emergency.Longitude != nil {
+		longitude = *emergency.Longitude
+	}
+
 	result, err := d.DB.Exec(`
 		INSERT INTO emergencies (
 			type,
@@ -116,8 +118,8 @@ func (d *Database) CreateEmergency(
 	`,
 		emergency.Type,
 		emergency.Severity,
-		emergency.Latitude,
-		emergency.Longitude,
+		latitude,
+		longitude,
 		emergency.Status,
 		emergency.CreatedAt,
 	)
@@ -130,7 +132,6 @@ func (d *Database) CreateEmergency(
 	}
 
 	id, err := result.LastInsertId()
-
 	if err != nil {
 		return Emergency{}, fmt.Errorf(
 			"get emergency ID: %w",
@@ -166,9 +167,7 @@ func (d *Database) ListEmergencies(
 		FROM emergencies
 		ORDER BY created_at DESC
 		LIMIT ?
-	`,
-		limit,
-	)
+	`, limit)
 
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -179,8 +178,7 @@ func (d *Database) ListEmergencies(
 
 	defer rows.Close()
 
-	emergencies :=
-		make([]Emergency, 0)
+	emergencies := make([]Emergency, 0)
 
 	for rows.Next() {
 		var emergency Emergency
@@ -200,11 +198,10 @@ func (d *Database) ListEmergencies(
 			)
 		}
 
-		emergencies =
-			append(
-				emergencies,
-				emergency,
-			)
+		emergencies = append(
+			emergencies,
+			emergency,
+		)
 	}
 
 	if err := rows.Err(); err != nil {

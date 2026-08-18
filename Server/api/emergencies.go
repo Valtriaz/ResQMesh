@@ -6,7 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Valtriaz/ResQMesh/Server/internal/storage"
+	"github.com/Valtriaz/ResQMesh/Server/storage"
+	resqws "github.com/Valtriaz/ResQMesh/Server/websocket"
 )
 
 type EmergencyRequest struct {
@@ -17,14 +18,17 @@ type EmergencyRequest struct {
 }
 
 type EmergencyHandler struct {
-	DB *storage.Database
+	DB  *storage.Database
+	Hub *resqws.Hub
 }
 
 func NewEmergencyHandler(
 	db *storage.Database,
+	hub *resqws.Hub,
 ) *EmergencyHandler {
 	return &EmergencyHandler{
-		DB: db,
+		DB:  db,
+		Hub: hub,
 	}
 }
 
@@ -38,9 +42,6 @@ func (h *EmergencyHandler) Handle(
 
 	case http.MethodGet:
 		h.list(w)
-
-	case http.MethodOptions:
-		w.WriteHeader(http.StatusNoContent)
 
 	default:
 		writeJSON(
@@ -61,12 +62,10 @@ func (h *EmergencyHandler) create(
 
 	var request EmergencyRequest
 
-	decoder :=
-		json.NewDecoder(r.Body)
-
-	if err := decoder.Decode(
-		&request,
-	); err != nil {
+	if err :=
+		json.NewDecoder(
+			r.Body,
+		).Decode(&request); err != nil {
 		writeJSON(
 			w,
 			http.StatusBadRequest,
@@ -118,11 +117,16 @@ func (h *EmergencyHandler) create(
 
 	emergency :=
 		storage.Emergency{
-			Type:      request.Type,
-			Severity:  request.Severity,
-			Latitude:  request.Latitude,
+			Type: request.Type,
+
+			Severity: request.Severity,
+
+			Latitude: request.Latitude,
+
 			Longitude: request.Longitude,
-			Status:    "received",
+
+			Status: "received",
+
 			CreatedAt: time.Now().UTC(),
 		}
 
@@ -136,12 +140,20 @@ func (h *EmergencyHandler) create(
 			w,
 			http.StatusInternalServerError,
 			map[string]string{
-				"error": err.Error(),
+				"error": "failed to store emergency",
 			},
 		)
 
 		return
 	}
+
+	h.Hub.Broadcast(
+		map[string]any{
+			"event": "emergency.created",
+
+			"data": created,
+		},
+	)
 
 	writeJSON(
 		w,
@@ -161,7 +173,7 @@ func (h *EmergencyHandler) list(
 			w,
 			http.StatusInternalServerError,
 			map[string]string{
-				"error": err.Error(),
+				"error": "failed to read emergencies",
 			},
 		)
 
@@ -187,13 +199,6 @@ func writeJSON(
 
 	w.WriteHeader(status)
 
-	if err := json.NewEncoder(w).Encode(
-		value,
-	); err != nil {
-		http.Error(
-			w,
-			"failed to encode response",
-			http.StatusInternalServerError,
-		)
-	}
+	_ = json.NewEncoder(w).
+		Encode(value)
 }

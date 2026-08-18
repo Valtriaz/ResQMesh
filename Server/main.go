@@ -6,27 +6,24 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/Valtriaz/ResQMesh/Server/internal/api"
-	"github.com/Valtriaz/ResQMesh/Server/internal/storage"
+	"github.com/Valtriaz/ResQMesh/Server/api"
+	"github.com/Valtriaz/ResQMesh/Server/storage"
+	resqws "github.com/Valtriaz/ResQMesh/Server/websocket"
 )
 
 func main() {
-	addr :=
-		getenv(
-			"RESQMESH_ADDR",
-			"0.0.0.0:5000",
-		)
+	addr := getenv(
+		"RESQMESH_ADDR",
+		"0.0.0.0:5000",
+	)
 
-	dbPath :=
-		getenv(
-			"RESQMESH_DB",
-			"./data/resqmesh.db",
-		)
+	dbPath := getenv(
+		"RESQMESH_DB",
+		"./data/resqmesh.db",
+	)
 
 	database, err :=
-		storage.NewDatabase(
-			dbPath,
-		)
+		storage.NewDatabase(dbPath)
 
 	if err != nil {
 		log.Fatalf(
@@ -44,13 +41,15 @@ func main() {
 		}
 	}()
 
+	hub := resqws.NewHub()
+
 	emergencyHandler :=
 		api.NewEmergencyHandler(
 			database,
+			hub,
 		)
 
-	mux :=
-		http.NewServeMux()
+	mux := http.NewServeMux()
 
 	mux.HandleFunc(
 		"/api/health",
@@ -60,6 +59,11 @@ func main() {
 	mux.HandleFunc(
 		"/api/emergencies",
 		emergencyHandler.Handle,
+	)
+
+	mux.HandleFunc(
+		"/ws",
+		hub.Handler(),
 	)
 
 	server :=
@@ -78,6 +82,11 @@ func main() {
 		dbPath,
 	)
 
+	log.Printf(
+		"WebSocket: ws://%s/ws",
+		addr,
+	)
+
 	if err :=
 		server.ListenAndServe(); err != nil &&
 		err != http.ErrServerClosed {
@@ -92,11 +101,6 @@ func healthHandler(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
 	if r.Method != http.MethodGet {
 		writeJSON(
 			w,
@@ -112,7 +116,7 @@ func healthHandler(
 	writeJSON(
 		w,
 		http.StatusOK,
-		map[string]any{
+		map[string]string{
 			"status":  "online",
 			"service": "ResQMesh Server",
 		},
@@ -182,8 +186,7 @@ func getenv(
 	key string,
 	fallback string,
 ) string {
-	value :=
-		os.Getenv(key)
+	value := os.Getenv(key)
 
 	if value == "" {
 		return fallback
