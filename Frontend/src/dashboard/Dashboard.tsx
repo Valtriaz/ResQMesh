@@ -1,4 +1,5 @@
 import {
+    useCallback,
     useEffect,
     useMemo,
     useRef,
@@ -8,6 +9,7 @@ import {
 import {
     Activity,
     AlertTriangle,
+    Check,
     CheckCircle2,
     Clock3,
     Radio,
@@ -21,8 +23,8 @@ interface Emergency {
     id: number;
     type: string;
     severity: string;
-    latitude: number;
-    longitude: number;
+    latitude: number | null;
+    longitude: number | null;
     status: string;
     createdAt: string;
 }
@@ -33,173 +35,329 @@ interface WebSocketEvent {
 }
 
 function Dashboard() {
-    const [
-        emergencies,
-        setEmergencies,
-    ] = useState<Emergency[]>([]);
+    const [emergencies, setEmergencies] =
+        useState<Emergency[]>([]);
 
-    const [
-        connected,
-        setConnected,
-    ] = useState(false);
+    const [connected, setConnected] =
+        useState(false);
 
-    const [
-        lastUpdate,
-        setLastUpdate,
-    ] = useState<Date | null>(
-        null,
-    );
+    const [lastUpdate, setLastUpdate] =
+        useState<Date | null>(null);
 
     const socketRef =
         useRef<WebSocket | null>(null);
 
-    const reconnectTimer =
+    const reconnectTimerRef =
         useRef<number | null>(null);
 
+    const mountedRef =
+        useRef(true);
+
+    const loadEmergencies =
+        useCallback(async () => {
+            try {
+                const response = await fetch(
+                    "/api/emergencies",
+                    {
+                        cache: "no-store",
+                    },
+                );
+
+                if (!response.ok) {
+                    throw new Error(
+                        `HTTP ${response.status}`,
+                    );
+                }
+
+                const data =
+                    (await response.json()) as Emergency[];
+
+                if (mountedRef.current) {
+                    setEmergencies(data);
+                }
+            } catch (error) {
+                console.error(
+                    "Failed to load emergencies:",
+                    error,
+                );
+            }
+        }, []);
+
+    const connectWebSocket =
+        useCallback(() => {
+            if (!mountedRef.current) {
+                return;
+            }
+
+            const existing =
+                socketRef.current;
+
+            if (
+                existing &&
+                (
+                    existing.readyState ===
+                    WebSocket.OPEN ||
+                    existing.readyState ===
+                    WebSocket.CONNECTING
+                )
+            ) {
+                return;
+            }
+
+            const protocol =
+                window.location.protocol ===
+                "https:"
+                    ? "wss:"
+                    : "ws:";
+
+            const socket =
+                new WebSocket(
+                    `${protocol}//${window.location.host}/ws`,
+                );
+
+            socketRef.current = socket;
+
+            socket.onopen = () => {
+                if (!mountedRef.current) {
+                    return;
+                }
+
+                console.log(
+                    "ResQMesh WebSocket connected",
+                );
+
+                setConnected(true);
+            };
+
+            socket.onmessage = (
+                message,
+            ) => {
+                if (!mountedRef.current) {
+                    return;
+                }
+
+                try {
+                    const event =
+                        JSON.parse(
+                            message.data,
+                        ) as WebSocketEvent;
+
+                    if (
+                        event.event ===
+                        "emergency.created"
+                    ) {
+                        setEmergencies(
+                            (current) => [
+                                event.data,
+                                ...current.filter(
+                                    (item) =>
+                                        item.id !==
+                                        event.data.id,
+                                ),
+                            ],
+                        );
+
+                        setLastUpdate(
+                            new Date(),
+                        );
+                    }
+
+                    if (
+                        event.event ===
+                        "emergency.updated"
+                    ) {
+                        setEmergencies(
+                            (current) =>
+                                current.map(
+                                    (item) =>
+                                        item.id ===
+                                        event.data.id
+                                            ? event.data
+                                            : item,
+                                ),
+                        );
+
+                        setLastUpdate(
+                            new Date(),
+                        );
+                    }
+                } catch (error) {
+                    console.error(
+                        "Invalid WebSocket event:",
+                        error,
+                    );
+                }
+            };
+
+            socket.onerror = (
+                error,
+            ) => {
+                console.error(
+                    "ResQMesh WebSocket error:",
+                    error,
+                );
+
+                if (mountedRef.current) {
+                    setConnected(false);
+                }
+            };
+
+            socket.onclose = (
+                event,
+            ) => {
+                console.log(
+                    "ResQMesh WebSocket closed:",
+                    {
+                        code: event.code,
+                        reason: event.reason,
+                    },
+                );
+
+                socketRef.current = null;
+
+                if (!mountedRef.current) {
+                    return;
+                }
+
+                setConnected(false);
+
+                if (
+                    reconnectTimerRef.current !==
+                    null
+                ) {
+                    window.clearTimeout(
+                        reconnectTimerRef.current,
+                    );
+                }
+
+                reconnectTimerRef.current =
+                    window.setTimeout(() => {
+                        connectWebSocket();
+                    }, 3000);
+            };
+        }, []);
+
     useEffect(() => {
+        mountedRef.current = true;
+
         void loadEmergencies();
 
         connectWebSocket();
 
         return () => {
+            mountedRef.current = false;
+
             if (
-                reconnectTimer.current !==
+                reconnectTimerRef.current !==
                 null
             ) {
                 window.clearTimeout(
-                    reconnectTimer.current,
+                    reconnectTimerRef.current,
                 );
+
+                reconnectTimerRef.current = null;
             }
 
-            socketRef.current?.close();
-        };
-    }, []);
+            const socket =
+                socketRef.current;
 
-    async function loadEmergencies() {
+            socketRef.current = null;
+
+            if (socket) {
+                socket.onopen = null;
+                socket.onmessage = null;
+                socket.onerror = null;
+                socket.onclose = null;
+
+                if (
+                    socket.readyState ===
+                    WebSocket.OPEN ||
+                    socket.readyState ===
+                    WebSocket.CONNECTING
+                ) {
+                    socket.close();
+                }
+            }
+        };
+    }, [
+        connectWebSocket,
+        loadEmergencies,
+    ]);
+
+    async function resolveEmergency(
+        id: number,
+    ) {
         try {
-            const response = await fetch(
-                "/api/emergencies",
-                {
-                    cache: "no-store",
-                },
-            );
+            const response =
+                await fetch(
+                    `/api/emergencies/${id}`,
+                    {
+                        method: "PATCH",
+                        headers: {
+                            "Content-Type":
+                                "application/json",
+                        },
+                        body: JSON.stringify({
+                            status: "resolved",
+                        }),
+                    },
+                );
+
+            const responseText =
+                await response.text();
 
             if (!response.ok) {
                 throw new Error(
-                    `HTTP ${response.status}`,
+                    `HTTP ${response.status}: ${responseText}`,
                 );
             }
 
-            const data =
-                (await response.json()) as Emergency[];
+            const updated =
+                JSON.parse(
+                    responseText,
+                ) as Emergency;
 
-            setEmergencies(data);
+            setEmergencies(
+                (current) =>
+                    current.map(
+                        (item) =>
+                            item.id === updated.id
+                                ? updated
+                                : item,
+                    ),
+            );
+
+            setLastUpdate(
+                new Date(),
+            );
         } catch (error) {
             console.error(
-                "Failed to load emergencies:",
-                error,
-            );
-        }
-    }
-
-    function connectWebSocket() {
-        if (
-            socketRef.current?.readyState ===
-            WebSocket.OPEN
-        ) {
-            return;
-        }
-
-        const protocol =
-            window.location.protocol ===
-            "https:"
-                ? "wss:"
-                : "ws:";
-
-        const socket =
-            new WebSocket(
-                `${protocol}//${window.location.host}/ws`,
-            );
-
-        socketRef.current =
-            socket;
-
-        socket.onopen = () => {
-            console.log(
-                "ResQMesh WebSocket connected",
-            );
-
-            setConnected(true);
-        };
-
-        socket.onmessage = (
-            message,
-        ) => {
-            try {
-                const event =
-                    JSON.parse(
-                        message.data,
-                    ) as WebSocketEvent;
-
-                if (
-                    event.event ===
-                    "emergency.created"
-                ) {
-                    setEmergencies(
-                        (current) => [
-                            event.data,
-                            ...current.filter(
-                                (item) =>
-                                    item.id !==
-                                    event.data.id,
-                            ),
-                        ],
-                    );
-
-                    setLastUpdate(
-                        new Date(),
-                    );
-                }
-            } catch (error) {
-                console.error(
-                    "Invalid WebSocket event:",
-                    error,
-                );
-            }
-        };
-
-        socket.onclose = () => {
-            console.log(
-                "ResQMesh WebSocket disconnected",
-            );
-
-            setConnected(false);
-
-            reconnectTimer.current =
-                window.setTimeout(() => {
-                    connectWebSocket();
-                }, 3000);
-        };
-
-        socket.onerror = (
-            error,
-        ) => {
-            console.error(
-                "ResQMesh WebSocket error:",
+                "Failed to resolve emergency:",
                 error,
             );
 
-            setConnected(false);
-        };
+            window.alert(
+                error instanceof Error
+                    ? error.message
+                    : "Failed to resolve emergency.",
+            );
+        }
     }
 
     const statistics = useMemo(
         () => ({
-            total: emergencies.length,
+            total:
+            emergencies.filter(
+                (item) =>
+                    item.status !==
+                    "resolved",
+            ).length,
 
             critical:
             emergencies.filter(
                 (item) =>
+                    item.status !==
+                    "resolved" &&
                     item.severity ===
                     "CRITICAL",
             ).length,
@@ -207,6 +365,8 @@ function Dashboard() {
             medical:
             emergencies.filter(
                 (item) =>
+                    item.status !==
+                    "resolved" &&
                     item.type ===
                     "MEDICAL",
             ).length,
@@ -214,6 +374,8 @@ function Dashboard() {
             evacuation:
             emergencies.filter(
                 (item) =>
+                    item.status !==
+                    "resolved" &&
                     item.type ===
                     "EVACUATION",
             ).length,
@@ -223,7 +385,7 @@ function Dashboard() {
 
     function formatTime(
         value: string,
-    ) {
+    ): string {
         return new Date(
             value,
         ).toLocaleTimeString([], {
@@ -231,6 +393,25 @@ function Dashboard() {
             minute: "2-digit",
             second: "2-digit",
         });
+    }
+
+    function formatLocation(
+        emergency: Emergency,
+    ): string {
+        if (
+            emergency.latitude ===
+            null ||
+            emergency.longitude ===
+            null
+        ) {
+            return "Location unavailable";
+        }
+
+        return `${emergency.latitude.toFixed(
+            5,
+        )} , ${emergency.longitude.toFixed(
+            5,
+        )}`;
     }
 
     return (
@@ -384,7 +565,7 @@ function Dashboard() {
                         <CheckCircle2 size={34} />
 
                         <strong>
-                            No active emergencies
+                            No emergency events
                         </strong>
 
                         <span>
@@ -398,7 +579,12 @@ function Dashboard() {
                             (emergency) => (
                                 <article
                                     key={emergency.id}
-                                    className={`event-row ${emergency.severity.toLowerCase()}`}
+                                    className={`event-row ${emergency.severity.toLowerCase()} ${
+                                        emergency.status ===
+                                        "resolved"
+                                            ? "resolved"
+                                            : ""
+                                    }`}
                                 >
                                     <div className="event-status">
                                         <span />
@@ -419,6 +605,16 @@ function Dashboard() {
                             emergency.severity
                         }
                       </span>
+
+                                            {emergency.status ===
+                                                "resolved" && (
+                                                    <span className="resolved-badge">
+                          <CheckCircle2
+                              size={13}
+                          />
+                          Resolved
+                        </span>
+                                                )}
                                         </div>
 
                                         <div className="event-meta">
@@ -427,12 +623,8 @@ function Dashboard() {
                       </span>
 
                                             <strong>
-                                                {emergency.latitude.toFixed(
-                                                    5,
-                                                )}
-                                                {" , "}
-                                                {emergency.longitude.toFixed(
-                                                    5,
+                                                {formatLocation(
+                                                    emergency,
                                                 )}
                                             </strong>
 
@@ -444,8 +636,27 @@ function Dashboard() {
                                         </div>
                                     </div>
 
-                                    <div className="event-id">
-                                        #{emergency.id}
+                                    <div className="event-actions">
+                                        <div className="event-id">
+                                            #{emergency.id}
+                                        </div>
+
+                                        {emergency.status !==
+                                            "resolved" && (
+                                                <button
+                                                    className="resolve-button"
+                                                    onClick={() =>
+                                                        void resolveEmergency(
+                                                            emergency.id,
+                                                        )
+                                                    }
+                                                >
+                                                    <Check
+                                                        size={14}
+                                                    />
+                                                    Resolve
+                                                </button>
+                                            )}
                                     </div>
                                 </article>
                             ),

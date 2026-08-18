@@ -68,7 +68,7 @@ func NewDatabase(path string) (*Database, error) {
 }
 
 func (d *Database) migrate() error {
-	schema := `
+	const schema = `
 CREATE TABLE IF NOT EXISTS emergencies (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	type TEXT NOT NULL,
@@ -107,6 +107,17 @@ CREATE INDEX IF NOT EXISTS idx_emergencies_type
 func (d *Database) CreateEmergency(
 	emergency Emergency,
 ) (Emergency, error) {
+	var latitude any
+	var longitude any
+
+	if emergency.Latitude != nil {
+		latitude = *emergency.Latitude
+	}
+
+	if emergency.Longitude != nil {
+		longitude = *emergency.Longitude
+	}
+
 	result, err := d.DB.Exec(`
 INSERT INTO emergencies (
 	type,
@@ -120,8 +131,8 @@ VALUES (?, ?, ?, ?, ?, ?)
 `,
 		emergency.Type,
 		emergency.Severity,
-		emergency.Latitude,
-		emergency.Longitude,
+		latitude,
+		longitude,
 		emergency.Status,
 		emergency.CreatedAt,
 	)
@@ -134,6 +145,7 @@ VALUES (?, ?, ?, ?, ?, ?)
 	}
 
 	id, err := result.LastInsertId()
+
 	if err != nil {
 		return Emergency{}, fmt.Errorf(
 			"get emergency id: %w",
@@ -279,6 +291,7 @@ WHERE id = ?
 	}
 
 	rowsAffected, err := result.RowsAffected()
+
 	if err != nil {
 		return fmt.Errorf(
 			"get updated row count: %w",

@@ -215,7 +215,6 @@
 
 .stat-card strong {
     margin-top: 4px;
-
     font-size: 34px;
 }
 
@@ -303,6 +302,7 @@
 
 .empty-state strong {
     margin-top: 12px;
+
     color: #c7d5e0;
 }
 
@@ -330,8 +330,13 @@
     background: #0e2134;
 }
 
+.event-row.resolved {
+    opacity: 0.72;
+}
+
 .event-status {
     width: 10px;
+    flex-shrink: 0;
 }
 
 .event-status span {
@@ -373,6 +378,13 @@ span {
     background: #31d39a;
 }
 
+.event-row.resolved
+.event-status
+span {
+    background: #31d39a;
+    box-shadow: none;
+}
+
 .event-main {
     flex: 1;
     min-width: 0;
@@ -382,7 +394,9 @@ span {
     display: flex;
     align-items: center;
 
-    gap: 9px;
+    flex-wrap: wrap;
+
+    gap: 8px;
 }
 
 .event-top strong {
@@ -420,6 +434,24 @@ span {
     background: #102d24;
 }
 
+.resolved-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+
+    padding: 4px 7px;
+
+    border-radius: 999px;
+
+    color: #6ee2b4;
+    background: #102d24;
+
+    font-size: 8px;
+    font-weight: 800;
+
+    letter-spacing: 0.05em;
+}
+
 .event-meta {
     display: flex;
     align-items: center;
@@ -437,9 +469,43 @@ span {
     color: #a7baca;
 }
 
+.event-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+
+    gap: 8px;
+
+    flex-shrink: 0;
+}
+
 .event-id {
     color: #536b7f;
     font-size: 9px;
+}
+
+.resolve-button {
+    display: inline-flex;
+    align-items: center;
+
+    gap: 6px;
+
+    padding: 8px 11px;
+
+    border: 1px solid #285a49;
+    border-radius: 9px;
+
+    color: #6ee5b8;
+    background: #102c24;
+
+    font-size: 10px;
+    font-weight: 700;
+
+    cursor: pointer;
+}
+
+.resolve-button:hover {
+    background: #174233;
 }
 
 @media (max-width: 800px) {
@@ -455,6 +521,10 @@ span {
     .stat-grid {
         grid-template-columns:
       repeat(2, 1fr);
+    }
+
+    .event-row {
+        align-items: flex-start;
     }
 }
 
@@ -473,5 +543,20 @@ span {
 
     .event-meta {
         flex-wrap: wrap;
+    }
+
+    .event-row {
+        flex-wrap: wrap;
+    }
+
+    .event-main {
+        width: calc(100% - 24px);
+    }
+
+    .event-actions {
+        width: 100%;
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
     }
 }

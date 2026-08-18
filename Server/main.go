@@ -22,9 +22,7 @@ func main() {
 		"./data/resqmesh.db",
 	)
 
-	database, err :=
-		storage.NewDatabase(dbPath)
-
+	database, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		log.Fatalf(
 			"database initialization failed: %v",
@@ -43,11 +41,10 @@ func main() {
 
 	hub := resqws.NewHub()
 
-	emergencyHandler :=
-		api.NewEmergencyHandler(
-			database,
-			hub,
-		)
+	emergencyHandler := api.NewEmergencyHandler(
+		database,
+		hub,
+	)
 
 	mux := http.NewServeMux()
 
@@ -62,15 +59,19 @@ func main() {
 	)
 
 	mux.HandleFunc(
+		"/api/emergencies/",
+		emergencyHandler.Handle,
+	)
+
+	mux.HandleFunc(
 		"/ws",
 		hub.Handler(),
 	)
 
-	server :=
-		&http.Server{
-			Addr:    addr,
-			Handler: withCORS(mux),
-		}
+	server := &http.Server{
+		Addr:    addr,
+		Handler: withCORS(mux),
+	}
 
 	log.Printf(
 		"ResQMesh server listening on %s",
@@ -87,8 +88,7 @@ func main() {
 		addr,
 	)
 
-	if err :=
-		server.ListenAndServe(); err != nil &&
+	if err := server.ListenAndServe(); err != nil &&
 		err != http.ErrServerClosed {
 		log.Fatalf(
 			"server failed: %v",
@@ -143,11 +143,10 @@ func withCORS(
 
 			w.Header().Set(
 				"Access-Control-Allow-Methods",
-				"GET, POST, OPTIONS",
+				"GET, POST, PATCH, OPTIONS",
 			)
 
-			if r.Method ==
-				http.MethodOptions {
+			if r.Method == http.MethodOptions {
 				w.WriteHeader(
 					http.StatusNoContent,
 				)
@@ -172,9 +171,7 @@ func writeJSON(
 
 	w.WriteHeader(status)
 
-	if err :=
-		json.NewEncoder(w).
-			Encode(value); err != nil {
+	if err := json.NewEncoder(w).Encode(value); err != nil {
 		log.Printf(
 			"JSON encoding error: %v",
 			err,

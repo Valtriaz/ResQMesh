@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +17,10 @@ type EmergencyRequest struct {
 	Severity  string   `json:"severity"`
 	Latitude  *float64 `json:"latitude"`
 	Longitude *float64 `json:"longitude"`
+}
+
+type StatusRequest struct {
+	Status string `json:"status"`
 }
 
 type EmergencyHandler struct {
@@ -43,6 +49,9 @@ func (h *EmergencyHandler) Handle(
 	case http.MethodGet:
 		h.list(w)
 
+	case http.MethodPatch:
+		h.updateStatus(w, r)
+
 	case http.MethodOptions:
 		w.WriteHeader(http.StatusNoContent)
 
@@ -65,9 +74,7 @@ func (h *EmergencyHandler) create(
 
 	var request EmergencyRequest
 
-	decoder := json.NewDecoder(r.Body)
-
-	if err := decoder.Decode(&request); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		writeJSON(
 			w,
 			http.StatusBadRequest,
@@ -122,19 +129,22 @@ func (h *EmergencyHandler) create(
 
 	created, err := h.DB.CreateEmergency(emergency)
 	if err != nil {
+		log.Printf(
+			"FAILED TO STORE EMERGENCY: %v",
+			err,
+		)
+
 		writeJSON(
 			w,
 			http.StatusInternalServerError,
 			map[string]string{
-				"error": "failed to store emergency",
+				"error": err.Error(),
 			},
 		)
 
 		return
 	}
 
-	// Broadcast only after the database has
-	// successfully stored the emergency.
 	h.Hub.Broadcast(
 		map[string]any{
 			"event": "emergency.created",
@@ -152,15 +162,18 @@ func (h *EmergencyHandler) create(
 func (h *EmergencyHandler) list(
 	w http.ResponseWriter,
 ) {
-	emergencies, err :=
-		h.DB.ListEmergencies(100)
-
+	emergencies, err := h.DB.ListEmergencies(100)
 	if err != nil {
+		log.Printf(
+			"FAILED TO READ EMERGENCIES: %v",
+			err,
+		)
+
 		writeJSON(
 			w,
 			http.StatusInternalServerError,
 			map[string]string{
-				"error": "failed to read emergencies",
+				"error": err.Error(),
 			},
 		)
 
@@ -171,6 +184,120 @@ func (h *EmergencyHandler) list(
 		w,
 		http.StatusOK,
 		emergencies,
+	)
+}
+
+func (h *EmergencyHandler) updateStatus(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	idText := strings.TrimPrefix(
+		r.URL.Path,
+		"/api/emergencies/",
+	)
+
+	id, err := strconv.ParseInt(
+		idText,
+		10,
+		64,
+	)
+
+	if err != nil || id <= 0 {
+		writeJSON(
+			w,
+			http.StatusBadRequest,
+			map[string]string{
+				"error": "invalid emergency id",
+			},
+		)
+
+		return
+	}
+
+	defer r.Body.Close()
+
+	var request StatusRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(
+			w,
+			http.StatusBadRequest,
+			map[string]string{
+				"error": "invalid JSON body",
+			},
+		)
+
+		return
+	}
+
+	request.Status = strings.ToLower(
+		strings.TrimSpace(request.Status),
+	)
+
+	if request.Status != "received" &&
+		request.Status != "resolved" {
+		writeJSON(
+			w,
+			http.StatusBadRequest,
+			map[string]string{
+				"error": "status must be received or resolved",
+			},
+		)
+
+		return
+	}
+
+	if err := h.DB.UpdateEmergencyStatus(
+		id,
+		request.Status,
+	); err != nil {
+		log.Printf(
+			"FAILED TO UPDATE EMERGENCY %d: %v",
+			id,
+			err,
+		)
+
+		writeJSON(
+			w,
+			http.StatusInternalServerError,
+			map[string]string{
+				"error": err.Error(),
+			},
+		)
+
+		return
+	}
+
+	updated, err := h.DB.GetEmergency(id)
+	if err != nil {
+		log.Printf(
+			"FAILED TO READ UPDATED EMERGENCY %d: %v",
+			id,
+			err,
+		)
+
+		writeJSON(
+			w,
+			http.StatusInternalServerError,
+			map[string]string{
+				"error": err.Error(),
+			},
+		)
+
+		return
+	}
+
+	h.Hub.Broadcast(
+		map[string]any{
+			"event": "emergency.updated",
+			"data":  updated,
+		},
+	)
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		updated,
 	)
 }
 
@@ -187,10 +314,9 @@ func writeJSON(
 	w.WriteHeader(status)
 
 	if err := json.NewEncoder(w).Encode(value); err != nil {
-		http.Error(
-			w,
-			"failed to encode JSON response",
-			http.StatusInternalServerError,
+		log.Printf(
+			"JSON encoding error: %v",
+			err,
 		)
 	}
 }
