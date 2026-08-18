@@ -11,10 +11,10 @@ import (
 )
 
 type EmergencyRequest struct {
-	Type      string  `json:"type"`
-	Severity  string  `json:"severity"`
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
+	Type      string   `json:"type"`
+	Severity  string   `json:"severity"`
+	Latitude  *float64 `json:"latitude"`
+	Longitude *float64 `json:"longitude"`
 }
 
 type EmergencyHandler struct {
@@ -43,6 +43,9 @@ func (h *EmergencyHandler) Handle(
 	case http.MethodGet:
 		h.list(w)
 
+	case http.MethodOptions:
+		w.WriteHeader(http.StatusNoContent)
+
 	default:
 		writeJSON(
 			w,
@@ -62,10 +65,9 @@ func (h *EmergencyHandler) create(
 
 	var request EmergencyRequest
 
-	if err :=
-		json.NewDecoder(
-			r.Body,
-		).Decode(&request); err != nil {
+	decoder := json.NewDecoder(r.Body)
+
+	if err := decoder.Decode(&request); err != nil {
 		writeJSON(
 			w,
 			http.StatusBadRequest,
@@ -77,19 +79,13 @@ func (h *EmergencyHandler) create(
 		return
 	}
 
-	request.Type =
-		strings.ToUpper(
-			strings.TrimSpace(
-				request.Type,
-			),
-		)
+	request.Type = strings.ToUpper(
+		strings.TrimSpace(request.Type),
+	)
 
-	request.Severity =
-		strings.ToUpper(
-			strings.TrimSpace(
-				request.Severity,
-			),
-		)
+	request.Severity = strings.ToUpper(
+		strings.TrimSpace(request.Severity),
+	)
 
 	if request.Type == "" {
 		writeJSON(
@@ -115,26 +111,16 @@ func (h *EmergencyHandler) create(
 		return
 	}
 
-	emergency :=
-		storage.Emergency{
-			Type: request.Type,
+	emergency := storage.Emergency{
+		Type:      request.Type,
+		Severity:  request.Severity,
+		Latitude:  request.Latitude,
+		Longitude: request.Longitude,
+		Status:    "received",
+		CreatedAt: time.Now().UTC(),
+	}
 
-			Severity: request.Severity,
-
-			Latitude: request.Latitude,
-
-			Longitude: request.Longitude,
-
-			Status: "received",
-
-			CreatedAt: time.Now().UTC(),
-		}
-
-	created, err :=
-		h.DB.CreateEmergency(
-			emergency,
-		)
-
+	created, err := h.DB.CreateEmergency(emergency)
 	if err != nil {
 		writeJSON(
 			w,
@@ -147,11 +133,12 @@ func (h *EmergencyHandler) create(
 		return
 	}
 
+	// Broadcast only after the database has
+	// successfully stored the emergency.
 	h.Hub.Broadcast(
 		map[string]any{
 			"event": "emergency.created",
-
-			"data": created,
+			"data":  created,
 		},
 	)
 
@@ -199,6 +186,11 @@ func writeJSON(
 
 	w.WriteHeader(status)
 
-	_ = json.NewEncoder(w).
-		Encode(value)
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		http.Error(
+			w,
+			"failed to encode JSON response",
+			http.StatusInternalServerError,
+		)
+	}
 }

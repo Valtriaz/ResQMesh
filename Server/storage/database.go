@@ -25,15 +25,13 @@ type Emergency struct {
 }
 
 func NewDatabase(path string) (*Database, error) {
-	directory := filepath.Dir(path)
+	dir := filepath.Dir(path)
 
-	if directory != "." {
-		if err := os.MkdirAll(directory, 0755); err != nil {
-			return nil, fmt.Errorf(
-				"create database directory: %w",
-				err,
-			)
-		}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf(
+			"create database directory: %w",
+			err,
+		)
 	}
 
 	db, err := sql.Open("sqlite", path)
@@ -70,56 +68,60 @@ func NewDatabase(path string) (*Database, error) {
 }
 
 func (d *Database) migrate() error {
-	_, err := d.DB.Exec(`
-		CREATE TABLE IF NOT EXISTS emergencies (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			type TEXT NOT NULL,
-			severity TEXT NOT NULL,
-			latitude REAL,
-			longitude REAL,
-			status TEXT NOT NULL DEFAULT 'received',
-			created_at DATETIME NOT NULL
-		);
+	schema := `
+CREATE TABLE IF NOT EXISTS emergencies (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	type TEXT NOT NULL,
+	severity TEXT NOT NULL,
+	latitude REAL,
+	longitude REAL,
+	status TEXT NOT NULL DEFAULT 'received',
+	created_at DATETIME NOT NULL
+);
 
-		CREATE INDEX IF NOT EXISTS idx_emergencies_created_at
-		ON emergencies(created_at);
+CREATE INDEX IF NOT EXISTS idx_emergencies_created_at
+	ON emergencies(created_at);
 
-		CREATE INDEX IF NOT EXISTS idx_emergencies_status
-		ON emergencies(status);
-	`)
+CREATE INDEX IF NOT EXISTS idx_emergencies_status
+	ON emergencies(status);
 
-	return err
+CREATE INDEX IF NOT EXISTS idx_emergencies_severity
+	ON emergencies(severity);
+
+CREATE INDEX IF NOT EXISTS idx_emergencies_type
+	ON emergencies(type);
+`
+
+	_, err := d.DB.Exec(schema)
+
+	if err != nil {
+		return fmt.Errorf(
+			"apply database schema: %w",
+			err,
+		)
+	}
+
+	return nil
 }
 
 func (d *Database) CreateEmergency(
 	emergency Emergency,
 ) (Emergency, error) {
-	var latitude any
-	var longitude any
-
-	if emergency.Latitude != nil {
-		latitude = *emergency.Latitude
-	}
-
-	if emergency.Longitude != nil {
-		longitude = *emergency.Longitude
-	}
-
 	result, err := d.DB.Exec(`
-		INSERT INTO emergencies (
-			type,
-			severity,
-			latitude,
-			longitude,
-			status,
-			created_at
-		)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`,
+INSERT INTO emergencies (
+	type,
+	severity,
+	latitude,
+	longitude,
+	status,
+	created_at
+)
+VALUES (?, ?, ?, ?, ?, ?)
+`,
 		emergency.Type,
 		emergency.Severity,
-		latitude,
-		longitude,
+		emergency.Latitude,
+		emergency.Longitude,
 		emergency.Status,
 		emergency.CreatedAt,
 	)
@@ -134,7 +136,7 @@ func (d *Database) CreateEmergency(
 	id, err := result.LastInsertId()
 	if err != nil {
 		return Emergency{}, fmt.Errorf(
-			"get emergency ID: %w",
+			"get emergency id: %w",
 			err,
 		)
 	}
@@ -156,18 +158,20 @@ func (d *Database) ListEmergencies(
 	}
 
 	rows, err := d.DB.Query(`
-		SELECT
-			id,
-			type,
-			severity,
-			latitude,
-			longitude,
-			status,
-			created_at
-		FROM emergencies
-		ORDER BY created_at DESC
-		LIMIT ?
-	`, limit)
+SELECT
+	id,
+	type,
+	severity,
+	latitude,
+	longitude,
+	status,
+	created_at
+FROM emergencies
+ORDER BY created_at DESC
+LIMIT ?
+`,
+		limit,
+	)
 
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -214,6 +218,88 @@ func (d *Database) ListEmergencies(
 	return emergencies, nil
 }
 
+func (d *Database) GetEmergency(
+	id int64,
+) (Emergency, error) {
+	var emergency Emergency
+
+	err := d.DB.QueryRow(`
+SELECT
+	id,
+	type,
+	severity,
+	latitude,
+	longitude,
+	status,
+	created_at
+FROM emergencies
+WHERE id = ?
+`,
+		id,
+	).Scan(
+		&emergency.ID,
+		&emergency.Type,
+		&emergency.Severity,
+		&emergency.Latitude,
+		&emergency.Longitude,
+		&emergency.Status,
+		&emergency.CreatedAt,
+	)
+
+	if err != nil {
+		return Emergency{}, fmt.Errorf(
+			"get emergency %d: %w",
+			id,
+			err,
+		)
+	}
+
+	return emergency, nil
+}
+
+func (d *Database) UpdateEmergencyStatus(
+	id int64,
+	status string,
+) error {
+	result, err := d.DB.Exec(`
+UPDATE emergencies
+SET status = ?
+WHERE id = ?
+`,
+		status,
+		id,
+	)
+
+	if err != nil {
+		return fmt.Errorf(
+			"update emergency %d: %w",
+			id,
+			err,
+		)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf(
+			"get updated row count: %w",
+			err,
+		)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf(
+			"emergency %d not found",
+			id,
+		)
+	}
+
+	return nil
+}
+
 func (d *Database) Close() error {
+	if d.DB == nil {
+		return nil
+	}
+
 	return d.DB.Close()
 }
