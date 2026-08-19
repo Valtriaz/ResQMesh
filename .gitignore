@@ -35,6 +35,10 @@ secrets/
 secret/
 credentials/
 
+# Node development state
+Node/node_identity.dat
+Node/build/
+
 # Node / React / Vite
 node_modules/
 .npm/
